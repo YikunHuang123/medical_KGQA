@@ -5,15 +5,22 @@ import pymongo
 import time
 import threading
 import multiprocessing
+from multiprocessing import Pool
 from multiprocessing import Process,Queue
 from multiprocessing import cpu_count
 
+'''
+爬虫获取数据
+'''
 
 class Spider:
     def __init__(self):
         self.conn = pymongo.MongoClient("127.0.0.1",27017)
-        self.db = self.conn['medical']##建立数据库
-        self.col = self.db['data']##建表，字典形式
+        # self.db = self.conn['medical']##建立数据库
+        # self.col = self.db['data']##建表，字典形式
+        self.db = self.conn['all_medical']  ##建立数据库
+        self.col = self.db['data']  ##建表，字典形式
+
     def html_analysis(self,url,tag):
         headers={'User-Agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                  'Chrome/99.0.4844.51 Safari/537.36'}
@@ -29,8 +36,8 @@ class Spider:
     #     html=res.read().decode('utf-8')
     #     return html
 
-    def spider_main(self):
-        for page in range(4163,10000):
+    def spider_main(self, start, end):
+        for page in range(start, end):
             try:
                 basic_url = 'http://jib.xywy.com/il_sii/gaishu/%s.htm' % page
                 cause_url = 'http://jib.xywy.com/il_sii/cause/%s.htm' % page
@@ -40,44 +47,28 @@ class Spider:
                 treat_url = 'http://jib.xywy.com/il_sii/treat/%s.htm' % page
                 food_url = 'http://jib.xywy.com/il_sii/food/%s.htm' % page
                 drug_url = 'http://jib.xywy.com/il_sii/drug/%s.htm' % page
-                hospital_url='http://jib.xywy.com/il_sii/doctor/%s.htm'% page
-                data = {}
-                # data['url'] = basic_url
-                data['basic_info'] = self.basic_info_analysis(basic_url)
-                # # print(data["basic_info"])
-                data['cause_info'] = self.more_spider(cause_url)
-                # # # print(data['cause_info'])
-                data['prevent_info'] = self.more_spider(prevent_url)
-                # # # print(data['prevent_info'])
-                data['symptom_info'] = self.more_spider(symptom_url)
-                # # # print(data['symptom_info'])
-                data['inspect_info'] = self.more_spider(inspect_url)
-                # # # print((data['inspect_info']))
-                data['treat_info'] = self.treat_spider(treat_url)
-                # # # print(data['treat_info'])
-                data['food_info'] = self.food_spider(food_url)
-                # print(data['food_info']['good_cooking_reconmand'])
-                # print(data['food_info'])
-                # print(page)
-
-                data['drug_info'] = self.drug_spider(drug_url)
-                # print(data['drug_info'])
-                # print(page, basic_url)
-                # print(data)
-                data['hospital']=self.hospital_spider(hospital_url)
-                time.sleep(1)
-                # print(data)
+                hospital_url = 'http://jib.xywy.com/il_sii/doctor/%s.htm' % page
+                data = {'basic_info': self.basic_info_analysis(basic_url),
+                        'cause_info': self.more_spider(cause_url),
+                        'prevent_info': self.more_spider(prevent_url),
+                        'symptom_info': self.more_spider(symptom_url),
+                        'inspect_info': self.more_spider(inspect_url),
+                        'treat_info': self.treat_spider(treat_url),
+                        'food_info': self.food_spider(food_url),
+                        'drug_info': self.drug_spider(drug_url),
+                        'hospital': self.hospital_spider(hospital_url)}
                 self.col.insert_one(data)
-                print("ok",page)
+                print("Page processed:", page)
             except Exception as e:
-                print(e,page)
-        # return
-    def hospital_spider(self,url):
+                print(e, page)
 
+
+    def hospital_spider(self,url):
         html = self.html_analysis(url,"gbk")
         hospital=etree.HTML(html)
-        hospital=[ i.xpath('string(.)') for i in hospital.xpath('//div[@class="panels"]/div[17]/div/div/p[2]')]
+        hospital=[i.xpath('string(.)') for i in hospital.xpath('//div[@class="panels"]/div[17]/div/div/p[2]')]
         return hospital
+
     def drug_spider(self,url):
         html=self.html_analysis(url,"gbk")
         drug_info=etree.HTML(html)
@@ -96,7 +87,6 @@ class Spider:
             drug_dict[drug_name]={"功能主治":drugs_gongneng,"用法用量":drugs_use,"价格":drug_spend}
         # drug_info_name=[i.replace("\n","").replace(" ","")for i in drug_info.xpath('//div[@class="fl drug-pic-rec mr30"]/p/a/text()')]
         # drug_url=drug_info.xpath('//div[@class="fl drug-pic-rec mr30"]/p/a/@href')
-
         # print(drug_info_name)
         # drug_desc={}
         # for i in range(len(drug_info_name)):
@@ -147,6 +137,7 @@ class Spider:
             if info:
                 more_information.append(info)
         return "\n".join(more_information)
+
     """ 治疗方案爬取"""
     def treat_spider(self,url):
         html = self.html_analysis(url,"gbk")
@@ -158,6 +149,7 @@ class Spider:
             if info:
                 treat_inforation.append(info)
         return "\n".join(treat_inforation)
+
     """ 饮食保健，益吃，忌吃食物爬取"""
     def food_spider(self,url):
         html=self.html_analysis(url,"gbk")
@@ -178,43 +170,25 @@ class Spider:
             food['good_eat']=",".join(info_eat[0].xpath('./div/p/text()'))
             # 忌吃食物
             food['bad_eat']=",".join(info_eat[1].xpath('./div/p/text()'))
-
         except:
             food['good_cooking_reconmand']="".join(food_command)
             return food
         return food
 
 
-# class MyProcess(Process):
-#     def __init__(self, q):
-#         Process.__init__(self)
-#         self.q = q
-#
-#     def run(self):
-#         print("Starting ")
-#         spider = Spider()
-#         while not self.q.empty():
-#             spider.spider_main()
-#         print("Exiting ")
-
-
-
-
+def run_spider(start, end):
+    spider = Spider()
+    spider.spider_main(start, end)
 
 
 if __name__ == '__main__':
-    spider = Spider()
-    spider.spider_main()
-    # threads=[threading.Thread(target=spider.spider_main)]
-    # for i in threads:
-    #     i.start()
-    #     i.join()
-    # workQueue=Queue(10000)
-    # for i in range(10000):
-    #     workQueue.put(i)
-    # for i in range(0,6):
-    #     p=MyProcess(workQueue)
-    #     p.daemon='True'
-    #     p.run()
-    #     p.join()
+    # 设定页面和进程数
+    total_pages = 10130    # 网站总数：10137
+    num_processes = 8  # 可以设置为 CPU 核心数(4核，1核可能可以超频处理两线程，最多是8，但是cpu占用还是低，可能因为网络等原因没有完全利用线程，试试设高点)
 
+    # 计算每个进程应处理的页面数
+    pages_per_process = total_pages // num_processes
+
+    # 创建进程池
+    with Pool(processes=num_processes) as pool:
+        pool.starmap(run_spider, [(i * pages_per_process, (i + 1) * pages_per_process) for i in range(num_processes)])
